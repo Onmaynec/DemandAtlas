@@ -111,7 +111,7 @@ def validate(rows: list[dict], entity: str, stores: set, products: set) -> tuple
                 cost = Decimal(str(row.get("unit_cost", "0")))
                 if not price.is_finite() or not cost.is_finite() or price < 0 or cost < 0:
                     errors.append(("invalid_price", "Prices must be finite and non-negative"))
-                if price.as_tuple().exponent < -2 or cost.as_tuple().exponent < -2:
+                if price.is_finite() and cost.is_finite() and (price.as_tuple().exponent < -2 or cost.as_tuple().exponent < -2):
                     errors.append(("invalid_price_precision", "Prices have at most two decimal places"))
             except InvalidOperation:
                 price = cost = Decimal(0)
@@ -167,44 +167,59 @@ def ingest(source_id: str, key: str, rows: list[dict]) -> PipelineRun:
     if any(not isinstance(row, dict) for row in rows):
         raise ValueError("Every row must be an object")
     checksum = hashlib.sha256(json.dumps(rows, sort_keys=True, default=str, separators=(",", ":")).encode()).hexdigest()
-    with SessionLocal.begin() as session:
-        source = session.get(Source, source_id)
-        if not source or not source.enabled:
-            raise LookupError("Source does not exist or is disabled")
-        existing = session.scalar(select(PipelineRun).where(
-            PipelineRun.source_id == source_id, PipelineRun.idempotency_key == key
-        ))
-        if existing:
-            if existing.checksum != checksum:
+    try:
+        with SessionLocal.begin() as session:
+            source = session.get(Source, source_id)
+            if not source or not source.enabled:
+                raise LookupError("Source does not exist or is disabled")
+            existing = session.scalar(select(PipelineRun).where(
+                PipelineRun.source_id == source_id, PipelineRun.idempotency_key == key
+            ))
+            if existing:
+                if existing.checksum != checksum or existing.mode != "append":
+                    raise RuntimeError("Idempotency key reused with different content")
+                return existing
+            store_ids = set(session.scalars(select(Store.id)))
+            sku_ids = set(session.scalars(select(Product.sku)))
+            entity = source.entity
+            accepted, findings = validate(rows, entity, store_ids, sku_ids)
+            run = PipelineRun(
+                id=str(uuid4()), source_id=source_id, idempotency_key=key,
+                checksum=checksum, schema_version=source.schema_version, mode="append",
+                status="rejected" if any(f["severity"] == "critical" for f in findings) else "validated",
+                rows_received=len(rows), rows_accepted=len(accepted),
+                rows_rejected=len(rows) - len(accepted), finished_at=None,
+            )
+            session.add(run)
+            session.flush()
+            raw_model = RawSale if entity == "sales" else RawStock
+            for pos in range(0, len(rows), 1500):
+                session.execute(insert(raw_model), [
+                    {"run_id": run.id, "row_number": n + 2, "payload": rows[n]}
+                    for n in range(pos, min(pos + 1500, len(rows)))
+                ])
+            for pos in range(0, len(findings), 1500):
+                session.execute(insert(QualityFinding), [
+                    {"run_id": run.id, **f} for f in findings[pos:pos + 1500]
+                ])
+            if run.status == "rejected":
+                run.finished_at = datetime.now(timezone.utc)
+                return run
+            run_id = run.id
+    except IntegrityError:
+        # PostgreSQL unique(source, idempotency_key) decides the race.
+        # A concurrent winning request may have committed its raw phase
+        # while its atomic mart publication is still in progress.
+        with SessionLocal() as retry:
+            winner = retry.scalar(select(PipelineRun).where(
+                PipelineRun.source_id == source_id,
+                PipelineRun.idempotency_key == key,
+            ))
+            if winner is None:
+                raise
+            if winner.checksum != checksum or winner.mode != "append":
                 raise RuntimeError("Idempotency key reused with different content")
-            return existing
-        store_ids = set(session.scalars(select(Store.id)))
-        sku_ids = set(session.scalars(select(Product.sku)))
-        entity = source.entity
-        accepted, findings = validate(rows, entity, store_ids, sku_ids)
-        run = PipelineRun(
-            id=str(uuid4()), source_id=source_id, idempotency_key=key,
-            checksum=checksum, schema_version=source.schema_version,
-            status="rejected" if any(f["severity"] == "critical" for f in findings) else "validated",
-            rows_received=len(rows), rows_accepted=len(accepted),
-            rows_rejected=len(rows) - len(accepted), finished_at=None,
-        )
-        session.add(run)
-        session.flush()
-        raw_model = RawSale if entity == "sales" else RawStock
-        for pos in range(0, len(rows), 1500):
-            session.execute(insert(raw_model), [
-                {"run_id": run.id, "row_number": n + 2, "payload": rows[n]}
-                for n in range(pos, min(pos + 1500, len(rows)))
-            ])
-        for pos in range(0, len(findings), 1500):
-            session.execute(insert(QualityFinding), [
-                {"run_id": run.id, **f} for f in findings[pos:pos + 1500]
-            ])
-        if run.status == "rejected":
-            run.finished_at = datetime.now(timezone.utc)
-            return run
-        run_id = run.id
+            return winner
     # Everything changing the published dataset is in ONE transaction.
     try:
         with SessionLocal.begin() as session:
@@ -214,13 +229,63 @@ def ingest(source_id: str, key: str, rows: list[dict]) -> PipelineRun:
                 state = DatasetState(id=1, version=0)
                 session.add(state)
                 session.flush()
+            if entity == "sales":
+                # Compare facts after acquiring the dataset lock. A previously
+                # published transaction may be replayed with identical values;
+                # a changed payload needs explicit version-checked reprocessing.
+                keys = [(r["transaction_id"], r["line_id"]) for r in accepted]
+                current = {}
+                for off in range(0, len(keys), 300):
+                    existing_rows = session.scalars(select(StagedSale).where(
+                        StagedSale.source_id == source_id,
+                        tuple_(StagedSale.transaction_id, StagedSale.line_id).in_(keys[off:off + 300]),
+                    )).all()
+                    current.update({(r.transaction_id, r.line_id): r for r in existing_rows})
+                rejected_rows = []
+                fresh = []
+                for row in accepted:
+                    key_pair = (row["transaction_id"], row["line_id"])
+                    prior = current.get(key_pair)
+                    if prior is None:
+                        fresh.append(row)
+                    elif any([
+                        prior.date != row["date"], prior.store_id != row["store_id"],
+                        prior.sku != row["sku"], prior.qty != row["qty"],
+                        prior.unit_price != row["unit_price"],
+                        prior.unit_cost != row["unit_cost"],
+                        bool(prior.promo) != row["promo"],
+                        bool(prior.stockout) != row["stockout"],
+                    ]):
+                        rejected_rows.append(key_pair)
+                if rejected_rows:
+                    line_numbers = {
+                        (str(r.get("transaction_id", "")).strip(),
+                         str(r.get("line_id", "")).strip()): n
+                        for n, r in enumerate(rows, start=2)
+                    }
+                    session.execute(insert(QualityFinding), [
+                        {"run_id": run_id, "row_number": line_numbers[tx],
+                         "rule": "changed_published_fact", "severity": "critical",
+                         "message": "Conflicting published sale; use version-checked reprocessing"}
+                        for tx in rejected_rows
+                    ])
+                    run.status = "rejected"
+                    run.rows_rejected = len(rejected_rows)
+                    run.rows_accepted = len(rows) - len(rejected_rows)
+                    run.finished_at = datetime.now(timezone.utc)
+                    return run
+                if not fresh:
+                    run.status = "published"
+                    run.dataset_version = state.version
+                    run.finished_at = datetime.now(timezone.utc)
+                    return run
             state.version += 1
             if entity == "sales":
-                touched = {(r["date"], r["store_id"], r["sku"]) for r in accepted}
-                for pos in range(0, len(accepted), 500):
+                touched = {(r["date"], r["store_id"], r["sku"]) for r in fresh}
+                for pos in range(0, len(fresh), 500):
                     bulk_ignore(session, StagedSale, [
                         {"source_id": source_id, "run_id": run_id, **record}
-                        for record in accepted[pos:pos + 500]
+                        for record in fresh[pos:pos + 500]
                     ])
                 touched_list = sorted(touched)
                 for pos in range(0, len(touched_list), 100):
@@ -252,7 +317,7 @@ def ingest(source_id: str, key: str, rows: list[dict]) -> PipelineRun:
                         session.execute(statement.on_conflict_do_update(
                             index_elements=["date", "store_id", "sku"], set_=updates
                         ))
-                coverage = sorted({(r["date"], r["store_id"]) for r in accepted})
+                coverage = sorted({(r["date"], r["store_id"]) for r in fresh})
                 for pos in range(0, len(coverage), 500):
                     bulk_ignore(session, DailyCoverage, [
                         {"date": day, "store_id": store, "run_id": run_id}

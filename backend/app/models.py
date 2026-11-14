@@ -65,6 +65,8 @@ class PipelineRun(Base):
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
     checksum: Mapped[str] = mapped_column(String(64), nullable=False)
     schema_version: Mapped[str] = mapped_column(String(20), default="1")
+    mode: Mapped[str] = mapped_column(String(20), nullable=False, default="append")
+    scope: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     dataset_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="running")
     rows_received: Mapped[int] = mapped_column(Integer, default=0)

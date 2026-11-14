@@ -1,0 +1,37 @@
+name: Publish release
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  publish:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Create version tag and GitHub Release once
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          version="$(tr -d '\r\n' < VERSION)"
+          if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid VERSION: $version" >&2
+            exit 1
+          fi
+          if [[ ! -f "docs/releases/$version.md" ]]; then
+            echo "Missing release notes for $version" >&2
+            exit 1
+          fi
+          if gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$version already exists"
+            exit 0
+          fi
+          gh release create "$version" --repo "$GITHUB_REPOSITORY" \
+            --target "$TARGET_SHA" --title "DemandAtlas $version — Data Integrity" \
+            --notes-file "docs/releases/$version.md"

@@ -25,8 +25,9 @@ from .models import (
 )
 from .pipeline import fetch_sql, ingest, parse_csv
 from .decisions import router as decisions_router
+from .reprocessing import router as reprocessing_router
 
-app = FastAPI(title="DemandAtlas API", version="0.1.0", openapi_url="/openapi.json")
+app = FastAPI(title="DemandAtlas API", version="0.2.0", openapi_url="/openapi.json")
 requests = defaultdict(list)
 
 
@@ -182,7 +183,7 @@ def run_quality(run_id: str, user: Principal = Depends(roles("data_engineer", "a
             "datasetVersion": run.dataset_version, "rowsReceived": run.rows_received,
             "rowsAccepted": run.rows_accepted, "rowsRejected": run.rows_rejected,
             "startedAt": run.started_at, "finishedAt": run.finished_at,
-            "error": run.error,
+            "error": run.error, "mode": run.mode, "scope": run.scope,
             "findings": [{"row": f.row_number, "rule": f.rule, "severity": f.severity,
                           "message": f.message} for f in findings]}
 
@@ -193,7 +194,19 @@ def runs_list(user: Principal = Depends(roles("data_engineer", "analyst")),
     runs = db.scalars(select(PipelineRun).order_by(PipelineRun.started_at.desc()).limit(50)).all()
     return [{"id": r.id, "source": r.source_id, "status": r.status,
              "received": r.rows_received, "rejected": r.rows_rejected,
-             "version": r.dataset_version} for r in runs]
+             "version": r.dataset_version, "mode": r.mode} for r in runs]
+
+
+@app.get("/api/v1/datasets/current")
+def current_dataset(user: Principal = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    # No business data exposed to an engineer, but the version is required
+    # to perform optimistic-concurrency-safe reprocessing.
+    version = db.scalar(select(DatasetState.version).where(DatasetState.id == 1)) or 0
+    last = db.scalar(select(func.max(PipelineRun.finished_at)).where(
+        PipelineRun.status == "published"
+    ))
+    return {"version": version, "lastPublishedAt": last}
 
 
 @app.get("/api/v1/metrics/catalog")
@@ -267,6 +280,44 @@ def coverage(db: Session, user: Principal, start: date, end: date,
     return {"expectedStoreDays": expected, "observedStoreDays": observed,
             "storeCoveragePct": round(100 * observed / expected, 2) if expected else None,
             "incomplete": observed < expected, "lastPublishedAt": latest}
+
+
+@app.get("/api/v1/metrics/coverage")
+def coverage_detail(
+    start: date, end: date, store: str | None = None,
+    region: str | None = None,
+    user: Principal = Depends(current_user), db: Session = Depends(get_db)
+):
+    if user.role == "data_engineer":
+        raise HTTPException(403, "Business coverage not permitted")
+    if end < start or (end - start).days > 92:
+        raise HTTPException(400, "Coverage range must be between 1 and 93 days")
+    if store and user.stores and store not in user.stores:
+        raise HTTPException(403, "Store outside permitted scope")
+    stmt = select(Store.id)
+    if store:
+        stmt = stmt.where(Store.id == store)
+    if region:
+        stmt = stmt.where(Store.region == region)
+    if user.stores:
+        stmt = stmt.where(Store.id.in_(user.stores))
+    permitted = list(db.scalars(stmt.order_by(Store.id)))
+    observed = set(db.execute(select(DailyCoverage.date, DailyCoverage.store_id).where(
+        DailyCoverage.date.between(start, end), DailyCoverage.store_id.in_(permitted)
+    )).all()) if permitted else set()
+    missing = []
+    for shop in permitted:
+        day = start
+        while day <= end:
+            if (day, shop) not in observed:
+                missing.append({"storeId": shop, "date": day.isoformat()})
+            day += timedelta(days=1)
+    total = len(permitted) * ((end-start).days+1)
+    return {"summary": {
+        "expectedStoreDays": total, "observedStoreDays": total - len(missing),
+        "coveragePct": round(100*(total-len(missing))/total, 2) if total else None,
+        "incomplete": bool(missing)
+    }, "missing": missing}
 
 
 @app.get("/api/v1/metrics/sales")
@@ -361,12 +412,18 @@ def export_sales(
     writer = csv.writer(output)
     writer.writerow(["sku", "units", "revenue", "cost", "margin"])
     for v in data:
-        writer.writerow([v.dimension, v.units, v.revenue, v.cost, v.revenue - v.cost])
+        # Spreadsheet software treats a leading formula character as code.
+        # Prefix any untrusted identifier before writing a CSV cell.
+        value = str(v.dimension)
+        if value.lstrip().startswith(("=", "+", "-", "@")):
+            value = "'" + value
+        writer.writerow([value, v.units, v.revenue, v.cost, v.revenue - v.cost])
     return Response(content=output.getvalue(), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": "attachment; filename=sales.csv"})
 
 
 app.include_router(decisions_router)
+app.include_router(reprocessing_router)
 
 @app.get("/")
 def index():
