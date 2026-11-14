@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: demandatlas
+      POSTGRES_USER: demand
+      POSTGRES_PASSWORD: demand
+    volumes: [demandatlas_pg:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U demand -d demandatlas"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  forecast:
+    build: .
+    command: ["uvicorn", "forecast_service.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    env_file: .env
+  api:
+    build: .
+    ports: ["127.0.0.1:8000:8000"]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      forecast:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  worker:
+    build: .
+    command: ["python", "-m", "backend.app.worker"]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+volumes:
+  demandatlas_pg:
