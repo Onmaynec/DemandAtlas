@@ -32,6 +32,7 @@ jobs:
             echo "$version already exists"
             exit 0
           fi
+          title="$(head -n 1 "docs/releases/$version.md" | sed "s/^# //")"
           gh release create "$version" --repo "$GITHUB_REPOSITORY" \
-            --target "$TARGET_SHA" --title "DemandAtlas $version — Data Integrity" \
+            --target "$TARGET_SHA" --title "$title" \
             --notes-file "docs/releases/$version.md"
