@@ -20,7 +20,8 @@ jobs:
         env:
           DEMO_MODE: "1"
           FORECAST_URL: ""
-        run: pytest -q tests
+          PYTHONPATH: .
+        run: python -m pytest -q tests
   docker-build:
     runs-on: ubuntu-latest
     steps:
