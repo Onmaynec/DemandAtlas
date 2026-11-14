@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b0d12">
+<title>DemandAtlas — аналитика спроса</title>
+<style>
+:root{color-scheme:dark;--bg:#0b0d12;--panel:#13161e;--panel2:#191e27;--line:#303642;--text:#f3f5f7;--muted:#9aa4b2;--accent:#96e8df;--red:#ff9eaa;--yellow:#efcf88;--radius:14px}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);font:14px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color:var(--text)}
+button,input,select,textarea{font:inherit}button{cursor:pointer}a{color:var(--accent)}
+#layout{display:grid;grid-template-columns:236px minmax(0,1fr);min-height:100vh}
+aside{border-right:1px solid var(--line);padding:27px 17px;background:#0f1118;position:sticky;top:0;height:100vh}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 10px 28px;font-size:19px;font-weight:750;letter-spacing:-.7px}
+.mark{width:28px;height:28px;border:2px solid var(--accent);border-radius:9px;display:grid;place-items:center;color:var(--accent);font-weight:800}
+.nav-title{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);margin:11px 12px}
+nav button{width:100%;display:flex;align-items:center;gap:11px;border:0;background:transparent;color:#b5bdc8;text-align:left;padding:12px 13px;border-radius:10px;margin:3px 0}
+nav button:hover,nav button.active{background:#232b31;color:var(--text)}
+nav button.active{box-shadow:inset 3px 0 var(--accent)}
+.side-bottom{position:absolute;bottom:22px;left:24px;right:24px;border-top:1px solid var(--line);padding-top:17px;color:var(--muted);font-size:12px}
+main{min-width:0;padding:28px min(4vw,52px) 56px}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:31px}
+.breadcrumb{font-size:12px;letter-spacing:1.1px;color:var(--muted);text-transform:uppercase}
+.userbar{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.page-title{font-size:32px;font-weight:750;letter-spacing:-1.3px;margin:0 0 4px}
+.subtitle{color:var(--muted);font-size:14px;margin-bottom:27px}
+.eyebrow{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--accent)}
+.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin-bottom:20px}
+.panel,.stat{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:21px;min-width:0}
+.stat{padding:18px 21px}
+.stat .number{font-weight:700;letter-spacing:-1px;font-size:27px;margin:8px 0 4px;font-variant-numeric:tabular-nums}
+.stat .small,.muted{color:var(--muted)}
+.small{font-size:12px}
+.grid2{display:grid;grid-template-columns:1.6fr 1fr;gap:17px}
+.grid-even{display:grid;grid-template-columns:1fr 1fr;gap:17px}
+.panel h2{font-size:16px;letter-spacing:-.2px;margin:0 0 14px}
+.toolbar{display:flex;align-items:end;flex-wrap:wrap;gap:10px;margin:0 0 18px}
+label{display:block;font-size:11px;letter-spacing:.3px;color:#bdc5ce}
+input,select,textarea{background:#0d1118;border:1px solid #3b4451;color:var(--text);padding:10px 11px;border-radius:9px;outline:none;max-width:100%}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 2px #96e8df2b}
+.toolbar label input,.toolbar label select{display:block;margin-top:5px}
+button.primary,button.secondary,button.danger{border:1px solid var(--accent);background:var(--accent);color:#121b21;border-radius:9px;padding:10px 16px;font-weight:650}
+button.secondary{background:transparent;color:var(--text);border-color:#505966}
+button.danger{background:transparent;color:var(--red);border-color:#78454d}
+button:hover{filter:brightness(1.12)}button:disabled{opacity:.45;cursor:not-allowed}
+table{width:100%;border-collapse:collapse;white-space:nowrap;font-size:13px}
+th{text-align:left;font-weight:600;letter-spacing:.2px;color:#abb7c2;padding:11px 8px;border-bottom:1px solid var(--line)}
+td{padding:12px 8px;border-bottom:1px solid #252a33;font-variant-numeric:tabular-nums}
+td.num,th.num{text-align:right}tr[data-store]{cursor:pointer}tr[data-store]:hover{background:var(--panel2)}
+.table-scroll{overflow-x:auto}
+.pill{border:1px solid #52605d;color:var(--accent);padding:2px 9px;border-radius:100px;font-size:11px}
+.pill.error{color:var(--red);border-color:#734b51}.pill.warn{color:var(--yellow);border-color:#776745}
+.notice{border-left:3px solid var(--yellow);background:#2c2618;padding:11px 14px;color:#f2dca9;border-radius:7px;margin-bottom:17px}
+.errorBox{border-left:3px solid var(--red);background:#2a171c;padding:12px;color:var(--red);border-radius:7px;margin-bottom:16px}
+.good{color:var(--accent)}.bad{color:var(--red)}
+canvas{width:100%;height:245px;display:block}
+.empty{color:var(--muted);padding:26px;text-align:center}
+.formgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px;margin:14px 0}
+.formgrid label input,.formgrid label select{display:block;width:100%;margin-top:5px}
+details{border-top:1px solid var(--line);padding:9px 0}
+summary{cursor:pointer;color:#d7dce2}
+#toast{position:fixed;bottom:22px;right:25px;z-index:99;max-width:460px;padding:14px 18px;background:#202d31;border:1px solid var(--accent);border-radius:12px;display:none;box-shadow:0 14px 42px #0008}
+.desktop-only{}
+@media(max-width:1180px){.cards{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
+@media(max-width:760px){#layout{display:block}aside{height:auto;position:relative;border:0;border-bottom:1px solid var(--line);padding:13px}.brand{padding:5px 7px 9px}.nav-title,.side-bottom{display:none}nav{display:flex;overflow-x:auto}nav button{white-space:nowrap;width:auto}main{padding:20px 14px}.topbar{align-items:start;flex-direction:column}.page-title{font-size:25px}.formgrid,.grid-even{grid-template-columns:1fr}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(prefers-reduced-motion:no-preference){button,.panel{transition:background .15s,border-color .15s}}
+</style>
+</head>
+<body>
+<div id="layout">
+  <aside>
+    <div class="brand"><span class="mark">D</span> DemandAtlas</div>
+    <div class="nav-title">Рабочее пространство</div>
+    <nav id="nav">
+      <button data-view="overview" class="active">◫ &nbsp; Обзор</button>
+      <button data-view="quality">▤ &nbsp; Загрузки и качество</button>
+      <button data-view="forecast">⌁ &nbsp; Прогнозирование</button>
+      <button data-view="plans">▣ &nbsp; Закупки и согласование</button>
+      <button data-view="sources">⊞ &nbsp; Источники данных</button>
+      <button data-view="catalog">≡ &nbsp; Каталог метрик</button>
+    </nav>
+    <div class="side-bottom">DEMAND INTELLIGENCE<br>Версия 0.1.0 • Локальная система</div>
+  </aside>
+  <main>
+    <div class="topbar"><div class="breadcrumb">Аналитика / <span id="crumb">Обзор</span></div>
+      <div class="userbar"><span class="small muted">Ключ доступа</span>
+        <input id="token" aria-label="Bearer-токен" type="password" value="demo-analyst" style="width:150px" autocomplete="off">
+        <button id="connect" class="secondary">Подключить</button>
+        <span class="pill" id="user">—</span>
+      </div>
+    </div>
+    <div id="content" aria-live="polite"></div>
+  </main>
+</div>
+<div id="toast" role="status"></div>
+<script>
+'use strict';
+const state={view:'overview',token:'demo-analyst',start:'',end:'',store:'',sku:'',catalog:null,forecastId:null,qualityRun:null};
+const $=id=>document.getElementById(id);
+const esc=v=>String(v===null||v===undefined?'—':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=v=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2}).format(Number(v||0));
+const today=new Date();
+state.end=today.toISOString().slice(0,10);
+state.start=new Date(today.getTime()-29*86400000).toISOString().slice(0,10);
+const headings={
+ overview:['Обзор продаж','Выручка, динамика, охват и вклад подразделений'],
+ quality:['Загрузки и качество','Проверка происхождения данных и протокол отклонённых строк'],
+ forecast:['Прогноз спроса','Сравнение baseline-моделей на исторических окнах'],
+ plans:['Планирование закупок','Расчёт заказа, сценарии и утверждение решений'],
+ sources:['Источники данных','Регистрация CSV и безопасных SQL-коннекторов'],
+ catalog:['Каталог метрик','Определения, формулы и происхождение KPI']
+};
+async function api(path,method='GET',body){
+ const headers={Authorization:'Bearer '+state.token};
+ if(body!==undefined)headers['Content-Type']='application/json';
+ const r=await fetch(path,{method,headers,body:body===undefined?undefined:JSON.stringify(body)});
+ let data;
+ try{data=await r.json()}catch{data={message:'Некорректный ответ сервера'}}
+ if(!r.ok)throw Error(data.message||data.detail||'HTTP '+r.status);
+ return data;
+}
+function toast(s,err=false){$('toast').textContent=s;$('toast').style.display='block';$('toast').style.borderColor=err?'var(--red)':'var(--accent)';setTimeout(()=>$('toast').style.display='none',4200)}
+function shell(view){
+ state.view=view;
+ document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
+ $('crumb').textContent=headings[view][0];
+ $('content').innerHTML='<div class="eyebrow">DemandAtlas / Workspace</div><h1 class="page-title">'+headings[view][0]+'</h1><div class="subtitle">'+headings[view][1]+'</div><div id="body"><div class="empty">Загрузка данных...</div></div>';
+}
+function error(e){$('body').innerHTML='<div class="errorBox">'+esc(e.message)+'</div>';}
+function options(values,selected){return values.map(v=>'<option value="'+esc(v.id)+'"'+(v.id===selected?' selected':'')+'>'+esc(v.label)+'</option>').join('')}
+function table(headers,rows){return '<div class="table-scroll"><table><thead><tr>'+headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.join('')+'</tbody></table></div>'}
+function card(title,content){return '<section class="panel"><h2>'+esc(title)+'</h2>'+content+'</section>'}
+function dateBar(){return '<div class="toolbar"><label>Начало<input type="date" id="start" value="'+esc(state.start)+'"></label><label>Конец<input type="date" id="end" value="'+esc(state.end)+'"></label><label>Магазин<select id="storeFilter">'+options([{id:'',label:'Все магазины'},...((state.catalog?.stores||[]).map(s=>({id:s.id,label:s.name})))],state.store)+'</select></label><button class="primary" id="refresh">Применить</button></div>'}
+async function overview(){
+ const q=new URLSearchParams({start:state.start,end:state.end,group_by:'date'});
+ if(state.store)q.set('store',state.store);
+ const c=new URLSearchParams({start:state.start,end:state.end,group_by:'store'});
+ if(state.store)c.set('store',state.store);
+ const [sales,comp]=await Promise.all([api('/api/v1/metrics/sales?'+q),api('/api/v1/metrics/compare?'+c)]);
+ const rows=sales.rows, rev=rows.reduce((s,r)=>s+r.revenue,0),units=rows.reduce((s,r)=>s+r.units,0),margin=rows.reduce((s,r)=>s+r.margin,0);
+ const cov=sales.coverage;
+ const stats=[['Выручка',money(rev)+' ₽','По опубликованным данным'],['Продажи',money(units),'Штук за период'],['Маржа',money(margin)+' ₽','Выручка за вычетом себестоимости'],['Охват',cov.storeCoveragePct===null?'—':cov.storeCoveragePct+'%','Дней × магазинов']];
+ const statHtml='<div class="cards">'+stats.map(s=>'<div class="stat"><div class="small muted">'+s[0]+'</div><div class="number">'+esc(s[1])+'</div><div class="small muted">'+s[2]+'</div></div>').join('')+'</div>';
+ const coverageNote=cov.incomplete?'<div class="notice">Неполный охват: '+cov.observedStoreDays+' из '+cov.expectedStoreDays+' магазин-дней. Показатели не отражают полную сеть.</div>':'';
+ const contribution=comp.contributions.sort((a,b)=>Math.abs(b.absoluteChange)-Math.abs(a.absoluteChange)).slice(0,12);
+ $('body').innerHTML=dateBar()+coverageNote+statHtml+'<div class="grid2">'+card('Динамика выручки','<canvas id="salesChart" aria-label="График выручки по датам" role="img"></canvas>'+table(['Дата','Выручка','Продажи'],rows.map(r=>'<tr><td>'+esc(r.dimension)+'</td><td>'+money(r.revenue)+'</td><td>'+money(r.units)+'</td></tr>')))+card('Изменение к прошлому периоду','<div class="number" style="font-size:28px">'+money(comp.absoluteChange)+' ₽</div><p class="'+(comp.absoluteChange>=0?'good':'bad')+'">'+(comp.percentChange===null?'Нет базы для сравнения':comp.percentChange+'% к прошлому периоду')+'</p>'+table(['Магазин','Вклад, ₽'],contribution.map(x=>'<tr data-store="'+esc(x.dimension)+'"><td>'+esc(x.dimension)+'</td><td>'+money(x.absoluteChange)+'</td></tr>'))+'<p class="small muted">Нажмите магазин для drill-down. Применённые даты сохраняются.</p>')+'</div><p class="small muted">Версия набора: '+sales.datasetVersion+' · Последняя публикация: '+esc(cov.lastPublishedAt)+' · Формулы доступны в каталоге метрик.</p>';
+ attachDate();
+ document.querySelectorAll('tr[data-store]').forEach(tr=>tr.onclick=()=>{state.store=tr.dataset.store;overview().catch(error)});
+ drawChart('salesChart',rows);
+}
+function attachDate(){
+ $('refresh').onclick=()=>{state.start=$('start').value;state.end=$('end').value;state.store=$('storeFilter').value;overview().catch(error)};
+}
+function drawChart(id,rows){
+ const canvas=$(id),ctx=canvas.getContext('2d'),w=canvas.clientWidth,h=245,dpr=window.devicePixelRatio||1;
+ canvas.width=w*dpr;canvas.height=h*dpr;ctx.scale(dpr,dpr);
+ const data=rows.map(x=>x.revenue),max=Math.max(...data,1),left=10,top=12,height=200;
+ ctx.strokeStyle='#343d49';ctx.lineWidth=1;
+ for(let i=0;i<5;i++){let y=top+i*height/4;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-6,y);ctx.stroke()}
+ if(!data.length)return;
+ const step=(w-22)/data.length;
+ data.forEach((v,i)=>{const bar=Math.max(1,(v/max)*(height-14));ctx.fillStyle='#96e8df';ctx.fillRect(left+i*step,top+height-bar,Math.max(1,step-2),bar)});
+}
+async function quality(){
+ const runs=await api('/api/v1/quality/runs');
+ const rows=runs.map(r=>'<tr><td><button class="secondary" data-run="'+esc(r.id)+'">'+esc(r.id.slice(0,8))+'</button></td><td>'+esc(r.source)+'</td><td><span class="pill '+(r.status==='rejected'?'error':'')+'">'+esc(r.status)+'</span></td><td>'+r.received+'</td><td>'+r.rejected+'</td></tr>');
+ $('body').innerHTML=card('Журнал пакетных загрузок',table(['Run ID','Источник','Состояние','Получено','Отклонено'],rows))+'<div class="panel" id="findings" style="margin-top:15px"><h2>Результаты проверки</h2><p class="muted">Выберите запуск.</p></div>';
+ document.querySelectorAll('[data-run]').forEach(b=>b.onclick=async()=>{
+  try{const r=await api('/api/v1/quality/runs/'+b.dataset.run);
+   $('findings').innerHTML='<h2>Запуск '+esc(r.runId)+'</h2><p>Статус: '+esc(r.status)+' · SHA-256: '+esc(r.checksum)+' · Dataset: '+esc(r.datasetVersion)+'</p>'+table(['Строка','Правило','Важность','Причина'],r.findings.map(x=>'<tr><td>'+x.row+'</td><td>'+esc(x.rule)+'</td><td>'+esc(x.severity)+'</td><td>'+esc(x.message)+'</td></tr>'));
+  }catch(e){toast(e.message,true)}
+ });
+}
+async function forecast(){
+ const [items,products]=[state.catalog?.stores||[],state.catalog?.products||[]];
+ $('body').innerHTML=card('Запуск backtesting','<div class="toolbar"><label>Магазин<select id="fStore">'+options(items.map(s=>({id:s.id,label:s.name})),'S001')+'</select></label><label>Товар<select id="fSku">'+options(products.slice(0,500).map(p=>({id:p.sku,label:p.sku+' · '+p.name})),'SKU00001')+'</select></label><label>Горизонт<select id="fHorizon"><option>7</option><option>14</option><option selected>28</option></select></label><button class="primary" id="backtest">Сравнить модели</button></div><p class="small muted">Rolling-origin использует только предшествующую историю. WAPE без фактического спроса не определён.</p>')+'<div id="forecastOutput"></div>';
+ $('backtest').onclick=async()=>{
+  try{
+   const body={storeId:$('fStore').value,sku:$('fSku').value,horizon:Number($('fHorizon').value)};
+   const res=await api('/api/v1/forecasts/backtest','POST',body);
+   const rows=Object.entries(res.models).map(([key,s])=>'<tr><td>'+esc(key)+(key===res.winner?' <span class="pill">Лучшая</span>':'')+'</td><td>'+money(s.mae)+'</td><td>'+(s.wape===null?'Не определено':money(s.wape))+'</td><td>'+money(s.bias)+'</td></tr>');
+   $('forecastOutput').innerHTML=card('Результат на '+res.fold_count+' окнах',table(['Модель','MAE','WAPE','Bias'],rows)+'<p class="small muted">Версия набора '+res.datasetVersion+' · Промо: '+res.historyQuality.promotionDays+' · Сток-ауты: '+res.historyQuality.stockoutDays+' · Пропуски: '+res.historyQuality.missingDays.length+'</p><button class="primary" id="publish">Опубликовать '+esc(res.winner)+'</button>');
+   $('publish').onclick=async()=>{try{const f=await api('/api/v1/forecasts/publish','POST',body);state.forecastId=f.id;toast('Прогноз опубликован: '+f.id);$('forecastOutput').innerHTML+='<div class="notice" style="margin-top:16px">Прогноз '+esc(f.id)+' · '+f.points.length+' дней · исходный набор '+f.datasetVersion+'</div>'}catch(e){toast(e.message,true)}};
+  }catch(e){toast(e.message,true)}
+ };
+}
+async function plans(){
+ const plans=await api('/api/v1/plans');
+ const optionsForecast=await api('/api/v1/forecasts');
+ const published=optionsForecast.filter(f=>f.storeId&&f.sku);
+ const actions=plans.map(p=>'<tr><td>'+esc(p.sku)+'</td><td>'+esc(p.storeId)+'</td><td>'+money(p.quantity)+'</td><td>'+esc(p.status)+'</td><td>'+p.version+'</td><td><button data-plan="'+esc(p.id)+'" data-status="'+esc(p.status)+'" data-version="'+p.version+'" class="secondary">Далее</button></td></tr>');
+ $('body').innerHTML=card('Что если: параметры закупки','<div class="formgrid"><label>Опубликованный прогноз<select id="pForecast">'+options(published.map(f=>({id:f.id,label:f.storeId+' · '+f.sku+' · '+f.horizon+' дней'})),state.forecastId)+'</select></label><label>Страховой запас<input id="safety" type="number" min="0" value="10"></label><label>Период пересмотра, дней<input id="review" type="number" min="0" max="28" value="7"></label></div><button id="scenario" class="secondary">Рассчитать сценарий</button> <button id="newPlan" class="primary">Создать черновик</button><div id="breakdown" style="margin-top:16px"></div>')+'<div style="margin-top:16px">'+card('Планы и версии',table(['Товар','Магазин','Заказ','Статус','Версия','Действие'],actions))+'</div>';
+ const body=()=>({forecastId:$('pForecast').value,safetyStock:Number($('safety').value),reviewDays:Number($('review').value)});
+ $('scenario').onclick=async()=>{try{const f=published.find(x=>x.id===$('pForecast').value);if(!f)throw Error('Нет опубликованного прогноза');
+  const s=await api('/api/v1/replenishment/scenario','POST',{forecastId:f.id,storeId:f.storeId,sku:f.sku,reviewDays:body().reviewDays,safetyStock:body().safetyStock});
+  $('breakdown').innerHTML='<div class="notice">'+esc(s.explanation)+'</div><p>Рекомендуемый заказ: <strong>'+s.recommended+' шт.</strong> · Сценарий не меняет фактические остатки и прогноз.</p>';
+ }catch(e){toast(e.message,true)}};
+ $('newPlan').onclick=async()=>{try{const p=await api('/api/v1/plans','POST',body());toast('Создан черновик '+p.id);plansPage()}catch(e){toast(e.message,true)}};
+ document.querySelectorAll('[data-plan]').forEach(b=>b.onclick=async()=>{try{
+  const target=b.dataset.status==='draft'||b.dataset.status==='rejected'?'submit':b.dataset.status==='pending'?'approve':'';
+  if(!target)return toast('Утверждённый план неизменяем',true);
+  const p=await api('/api/v1/plans/'+b.dataset.plan+'/'+target,'POST',{expectedVersion:Number(b.dataset.version)});
+  toast('Новый статус: '+p.status);plansPage();
+ }catch(e){toast(e.message,true)}});
+}
+function plansPage(){plans().catch(error)}
+async function sources(){
+ const sources=await api('/api/v1/sources');
+ $('body').innerHTML=card('Зарегистрированные источники',table(['ID','Тип','Сущность','Расписание'],sources.map(s=>'<tr><td>'+esc(s.id)+'</td><td>'+esc(s.kind)+'</td><td>'+esc(s.entity)+'</td><td>'+esc(s.schedule_minutes||'ручное')+'</td></tr>')))+
+ '<div class="grid-even" style="margin-top:16px">'+card('Добавить CSV источник','<div class="formgrid" style="grid-template-columns:1fr 1fr"><label>ID<input id="newSource" value="my_sales"></label><label>Тип данных<select id="sourceEntity"><option value="sales">Продажи</option><option value="stock">Остатки</option></select></label></div><button class="primary" id="addSource">Создать</button>')+
+ card('Импортировать CSV','<label>Источник<input id="uploadSource" value="demo_sales"></label><label>CSV файл<input id="csvFile" type="file" accept=".csv,text/csv"></label><button class="primary" id="upload" style="margin-top:11px">Проверить и загрузить</button><p class="small muted">100 000 строк на пакет, максимум 35 МБ. Ошибки блокируют публикацию.</p>')+'</div>';
+ $('addSource').onclick=async()=>{try{const s=await api('/api/v1/sources','POST',{id:$('newSource').value,kind:'csv',entity:$('sourceEntity').value});toast('Создан источник '+s.id);sourcesPage()}catch(e){toast(e.message,true)}};
+ $('upload').onclick=async()=>{try{const file=$('csvFile').files[0];if(!file)throw Error('Выберите CSV');
+  const res=await api('/api/v1/pipelines/'+encodeURIComponent($('uploadSource').value)+'/runs','POST',{idempotencyKey:crypto.randomUUID(),csv:await file.text()});toast('Статус '+res.status+' · получено '+res.rowsReceived);if(res.status==='rejected')toast('Критические ошибки: проверьте журнал',true);
+ }catch(e){toast(e.message,true)}};
+}
+function sourcesPage(){sources().catch(error)}
+async function catalog(){
+ const data=await api('/api/v1/metrics/catalog');
+ $('body').innerHTML='<div class="grid-even">'+Object.entries(data).map(([name,v])=>card(name,'<p>'+esc(v.formula)+'</p><p class="small muted">Единицы: '+esc(v.unit)+'<br>Источник: '+esc(v.source)+'</p>')).join('')+'</div><p class="small muted">Происхождение конкретного KPI доступно через GET /api/v1/lineage.</p>';
+}
+async function load(){
+ try{
+  const u=await api('/api/v1/auth/me');$('user').textContent=u.role;
+  state.catalog=await api('/api/v1/catalog');
+  ({overview,quality,forecast,plans,sources,catalog}[state.view])().catch(error);
+ }catch(e){error(e);$('user').textContent='Нет доступа'}
+}
+document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{shell(b.dataset.view);load()});
+$('connect').onclick=()=>{state.token=$('token').value.trim();load()};
+shell('overview');load();
+</script>
+</body>
+</html>
