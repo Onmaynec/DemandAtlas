@@ -108,6 +108,9 @@ def create_user(body: NewUser, request: Request,
         stores=body.stores, categories=body.categories, enabled=True,
     )
     db.add(user)
+    # Materialize the parent before issuing an AccessKey. SQLite may allow
+    # unflushed FK ordering silently, but PostgreSQL enforces it.
+    db.flush()
     token, key = issue_key(db, user, "initial", actor.name, body.expiresInDays)
     transaction_audit(db, request, actor, 201)
     try:
