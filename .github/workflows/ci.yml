@@ -27,3 +27,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t demandatlas:ci .
+
+  compose-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start isolated stack
+        run: |
+          cp .env.example .env
+          docker compose -f compose.yml up --build -d
+      - name: Seed synthetic catalog and verify API
+        run: |
+          docker compose -f compose.yml exec -T api python -m backend.scripts.seed_demo --rows 300 --seed 42
+          curl --fail --silent http://127.0.0.1:8000/health
+          curl --fail --silent -H "Authorization: Bearer demo-analyst" \
+            http://127.0.0.1:8000/api/v1/metrics/catalog | python -c "import sys,json; assert 'margin' in json.load(sys.stdin)"
+          curl --fail --silent -X POST http://127.0.0.1:8000/api/v1/forecasts/backtest \
+            -H "Authorization: Bearer demo-analyst" -H "Content-Type: application/json" \
+            -d '{"storeId":"S001","sku":"SKU00001","horizon":28}' | python -c "import sys,json; assert json.load(sys.stdin)['winner']"
+      - name: Diagnose and stop
+        if: always()
+        run: |
+          docker compose -f compose.yml ps || true
+          docker compose -f compose.yml logs --no-color --tail=100 || true
+          docker compose -f compose.yml down -v || true
