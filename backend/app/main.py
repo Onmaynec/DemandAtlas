@@ -24,6 +24,7 @@ from .models import (
     QualityFinding, Source, StagedSale, Store
 )
 from .pipeline import fetch_sql, ingest, parse_csv
+from .decisions import router as decisions_router
 
 app = FastAPI(title="DemandAtlas API", version="0.1.0", openapi_url="/openapi.json")
 requests = defaultdict(list)
@@ -365,7 +366,6 @@ def export_sales(
                     headers={"Content-Disposition": "attachment; filename=sales.csv"})
 
 
-from .decisions import router as decisions_router
 app.include_router(decisions_router)
 
 @app.get("/")
