@@ -6,8 +6,8 @@
 |---|---|---|
 | AT-01 | Импорт 100 000, контрольная сумма | Нужен воспроизводимый замер на эталонном сервере; скрипт benchmark |
 | AT-02 | Повтор batch | test_retry_idempotence_and_atomic_quality_gate |
-| AT-03 | 100 ошибок SKU/qty, mart неизменен | Автотест нескольких ошибок, нужно расширить до 100 |
-| AT-04 | Нет данных магазина 3 дня | API coverage есть, нужен точный AT тест |
+| AT-03 | 100 ошибок SKU/qty, mart неизменен | Автотест 100 ошибок: tests/test_acceptance_coverage.py |
+| AT-04 | Нет данных магазина 3 дня | Автотест 3 пропущенных дней: tests/test_acceptance_coverage.py |
 | AT-05 | KPI маржи, формула и источники | /api/v1/metrics/catalog |
 | AT-06 | Backtest трёх baseline | test_forecast_determinism_and_common_origins |
 | AT-07 | WAPE при нулевом факте | test_wape_zero_actual_at07 |
@@ -21,7 +21,7 @@
 
 ## Остаточные задачи
 
-DAT-F-07: корректная переобработка диапазона с исправлением исторического факта.
+DAT-F-07: явная замена source/store/date реализована в v0.2.0; нужно подтвердить восстановление после сбоя и нагрузку.
 DAT-F-12: XLSX-экспорт (CSV уже есть).
 DAT-F-24: детальные риски избытка и дефицита.
 DAT-F-25: детерминированные объяснения KPI.

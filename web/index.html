@@ -79,7 +79,7 @@ summary{cursor:pointer;color:#d7dce2}
       <button data-view="sources">⊞ &nbsp; Источники данных</button>
       <button data-view="catalog">≡ &nbsp; Каталог метрик</button>
     </nav>
-    <div class="side-bottom">DEMAND INTELLIGENCE<br>Версия 0.1.0 • Локальная система</div>
+    <div class="side-bottom">DEMAND INTELLIGENCE<br>Версия 0.2.0 • Локальная система</div>
   </aside>
   <main>
     <div class="topbar"><div class="breadcrumb">Аналитика / <span id="crumb">Обзор</span></div>
@@ -141,10 +141,19 @@ async function overview(){
  const cov=sales.coverage;
  const stats=[['Выручка',money(rev)+' ₽','По опубликованным данным'],['Продажи',money(units),'Штук за период'],['Маржа',money(margin)+' ₽','Выручка за вычетом себестоимости'],['Охват',cov.storeCoveragePct===null?'—':cov.storeCoveragePct+'%','Дней × магазинов']];
  const statHtml='<div class="cards">'+stats.map(s=>'<div class="stat"><div class="small muted">'+s[0]+'</div><div class="number">'+esc(s[1])+'</div><div class="small muted">'+s[2]+'</div></div>').join('')+'</div>';
- const coverageNote=cov.incomplete?'<div class="notice">Неполный охват: '+cov.observedStoreDays+' из '+cov.expectedStoreDays+' магазин-дней. Показатели не отражают полную сеть.</div>':'';
+ const coverageNote=cov.incomplete?'<div class="notice">Неполный охват: '+cov.observedStoreDays+' из '+cov.expectedStoreDays+' магазин-дней. Показатели не отражают полную сеть. <button class="secondary" id="coverageDetails">Показать пропуски</button></div>':'';
  const contribution=comp.contributions.sort((a,b)=>Math.abs(b.absoluteChange)-Math.abs(a.absoluteChange)).slice(0,12);
- $('body').innerHTML=dateBar()+coverageNote+statHtml+'<div class="grid2">'+card('Динамика выручки','<canvas id="salesChart" aria-label="График выручки по датам" role="img"></canvas>'+table(['Дата','Выручка','Продажи'],rows.map(r=>'<tr><td>'+esc(r.dimension)+'</td><td>'+money(r.revenue)+'</td><td>'+money(r.units)+'</td></tr>')))+card('Изменение к прошлому периоду','<div class="number" style="font-size:28px">'+money(comp.absoluteChange)+' ₽</div><p class="'+(comp.absoluteChange>=0?'good':'bad')+'">'+(comp.percentChange===null?'Нет базы для сравнения':comp.percentChange+'% к прошлому периоду')+'</p>'+table(['Магазин','Вклад, ₽'],contribution.map(x=>'<tr data-store="'+esc(x.dimension)+'"><td>'+esc(x.dimension)+'</td><td>'+money(x.absoluteChange)+'</td></tr>'))+'<p class="small muted">Нажмите магазин для drill-down. Применённые даты сохраняются.</p>')+'</div><p class="small muted">Версия набора: '+sales.datasetVersion+' · Последняя публикация: '+esc(cov.lastPublishedAt)+' · Формулы доступны в каталоге метрик.</p>';
+ $('body').innerHTML=dateBar()+coverageNote+statHtml+'<div class="grid2">'+card('Динамика выручки','<canvas id="salesChart" aria-label="График выручки по датам" role="img"></canvas>'+table(['Дата','Выручка','Продажи'],rows.map(r=>'<tr><td>'+esc(r.dimension)+'</td><td>'+money(r.revenue)+'</td><td>'+money(r.units)+'</td></tr>')))+card('Изменение к прошлому периоду','<div class="number" style="font-size:28px">'+money(comp.absoluteChange)+' ₽</div><p class="'+(comp.absoluteChange>=0?'good':'bad')+'">'+(comp.percentChange===null?'Нет базы для сравнения':comp.percentChange+'% к прошлому периоду')+'</p>'+table(['Магазин','Вклад, ₽'],contribution.map(x=>'<tr data-store="'+esc(x.dimension)+'"><td>'+esc(x.dimension)+'</td><td>'+money(x.absoluteChange)+'</td></tr>'))+'<p class="small muted">Нажмите магазин для drill-down. Применённые даты сохраняются.</p>')+'</div><div id="coverageOutput"></div><p class="small muted">Версия набора: '+sales.datasetVersion+' · Последняя публикация: '+esc(cov.lastPublishedAt)+' · Формулы доступны в каталоге метрик.</p>';
  attachDate();
+ if($('coverageDetails'))$('coverageDetails').onclick=async()=>{
+  try{
+   const params=new URLSearchParams({start:state.start,end:state.end});
+   if(state.store)params.set('store',state.store);
+   const c=await api('/api/v1/metrics/coverage?'+params);
+   const rows=c.missing.slice(0,200).map(x=>'<tr><td>'+esc(x.storeId)+'</td><td>'+esc(x.date)+'</td></tr>');
+   $('coverageOutput').innerHTML=card('Пропущенные магазин-дни · '+c.missing.length,table(['Магазин','Дата'],rows)+(c.missing.length>200?'<p>Показаны первые 200 пропусков.</p>':''));
+  }catch(e){toast(e.message,true)}
+ };
  document.querySelectorAll('tr[data-store]').forEach(tr=>tr.onclick=()=>{state.store=tr.dataset.store;overview().catch(error)});
  drawChart('salesChart',rows);
 }
@@ -163,11 +172,11 @@ function drawChart(id,rows){
 }
 async function quality(){
  const runs=await api('/api/v1/quality/runs');
- const rows=runs.map(r=>'<tr><td><button class="secondary" data-run="'+esc(r.id)+'">'+esc(r.id.slice(0,8))+'</button></td><td>'+esc(r.source)+'</td><td><span class="pill '+(r.status==='rejected'?'error':'')+'">'+esc(r.status)+'</span></td><td>'+r.received+'</td><td>'+r.rejected+'</td></tr>');
- $('body').innerHTML=card('Журнал пакетных загрузок',table(['Run ID','Источник','Состояние','Получено','Отклонено'],rows))+'<div class="panel" id="findings" style="margin-top:15px"><h2>Результаты проверки</h2><p class="muted">Выберите запуск.</p></div>';
+ const rows=runs.map(r=>'<tr><td><button class="secondary" data-run="'+esc(r.id)+'">'+esc(r.id.slice(0,8))+'</button></td><td>'+esc(r.source)+'</td><td>'+esc(r.mode||'append')+'</td><td><span class="pill '+(r.status==='rejected'?'error':'')+'">'+esc(r.status)+'</span></td><td>'+r.received+'</td><td>'+r.rejected+'</td></tr>');
+ $('body').innerHTML=card('Журнал пакетных загрузок',table(['Run ID','Источник','Операция','Состояние','Получено','Отклонено'],rows))+'<div class="panel" id="findings" style="margin-top:15px"><h2>Результаты проверки</h2><p class="muted">Выберите запуск.</p></div>';
  document.querySelectorAll('[data-run]').forEach(b=>b.onclick=async()=>{
   try{const r=await api('/api/v1/quality/runs/'+b.dataset.run);
-   $('findings').innerHTML='<h2>Запуск '+esc(r.runId)+'</h2><p>Статус: '+esc(r.status)+' · SHA-256: '+esc(r.checksum)+' · Dataset: '+esc(r.datasetVersion)+'</p>'+table(['Строка','Правило','Важность','Причина'],r.findings.map(x=>'<tr><td>'+x.row+'</td><td>'+esc(x.rule)+'</td><td>'+esc(x.severity)+'</td><td>'+esc(x.message)+'</td></tr>'));
+   $('findings').innerHTML='<h2>Запуск '+esc(r.runId)+'</h2><p>Статус: '+esc(r.status)+' · SHA-256: '+esc(r.checksum)+' · Dataset: '+esc(r.datasetVersion)+'</p>'+(r.scope?'<p>Диапазон замены: '+esc(JSON.stringify(r.scope))+'</p>':'')+table(['Строка','Правило','Важность','Причина'],r.findings.map(x=>'<tr><td>'+x.row+'</td><td>'+esc(x.rule)+'</td><td>'+esc(x.severity)+'</td><td>'+esc(x.message)+'</td></tr>'));
   }catch(e){toast(e.message,true)}
  });
 }
@@ -205,14 +214,79 @@ async function plans(){
 }
 function plansPage(){plans().catch(error)}
 async function sources(){
- const sources=await api('/api/v1/sources');
- $('body').innerHTML=card('Зарегистрированные источники',table(['ID','Тип','Сущность','Расписание'],sources.map(s=>'<tr><td>'+esc(s.id)+'</td><td>'+esc(s.kind)+'</td><td>'+esc(s.entity)+'</td><td>'+esc(s.schedule_minutes||'ручное')+'</td></tr>')))+
- '<div class="grid-even" style="margin-top:16px">'+card('Добавить CSV источник','<div class="formgrid" style="grid-template-columns:1fr 1fr"><label>ID<input id="newSource" value="my_sales"></label><label>Тип данных<select id="sourceEntity"><option value="sales">Продажи</option><option value="stock">Остатки</option></select></label></div><button class="primary" id="addSource">Создать</button>')+
- card('Импортировать CSV','<label>Источник<input id="uploadSource" value="demo_sales"></label><label>CSV файл<input id="csvFile" type="file" accept=".csv,text/csv"></label><button class="primary" id="upload" style="margin-top:11px">Проверить и загрузить</button><p class="small muted">100 000 строк на пакет, максимум 35 МБ. Ошибки блокируют публикацию.</p>')+'</div>';
- $('addSource').onclick=async()=>{try{const s=await api('/api/v1/sources','POST',{id:$('newSource').value,kind:'csv',entity:$('sourceEntity').value});toast('Создан источник '+s.id);sourcesPage()}catch(e){toast(e.message,true)}};
- $('upload').onclick=async()=>{try{const file=$('csvFile').files[0];if(!file)throw Error('Выберите CSV');
-  const res=await api('/api/v1/pipelines/'+encodeURIComponent($('uploadSource').value)+'/runs','POST',{idempotencyKey:crypto.randomUUID(),csv:await file.text()});toast('Статус '+res.status+' · получено '+res.rowsReceived);if(res.status==='rejected')toast('Критические ошибки: проверьте журнал',true);
- }catch(e){toast(e.message,true)}};
+ const [sources,dataset]=await Promise.all([api('/api/v1/sources'),api('/api/v1/datasets/current')]);
+ const catalogStores=(state.catalog?.stores||[]).map(s=>({id:s.id,label:s.name}));
+ $('body').innerHTML=
+  '<div class="notice">Опубликованная версия набора: <strong>'+dataset.version+'</strong>. Переобработка использует эту версию для защиты от параллельных изменений. Обычный импорт не изменяет существующие чеки.</div>'+
+  card('Зарегистрированные источники',table(['ID','Тип','Данные','Расписание'],sources.map(s=>'<tr><td>'+esc(s.id)+'</td><td>'+esc(s.kind)+'</td><td>'+esc(s.entity)+'</td><td>'+esc(s.schedule_minutes||'ручное')+'</td></tr>')))+
+  '<div class="grid-even" style="margin-top:16px">'+
+  card('Добавить CSV источник','<div class="formgrid" style="grid-template-columns:1fr 1fr"><label>ID<input id="newSource" value="my_sales"></label><label>Тип данных<select id="sourceEntity"><option value="sales">Продажи</option><option value="stock">Остатки</option></select></label></div><button class="primary" id="addSource">Создать</button>')+
+  card('Импортировать CSV','<label>Источник<input id="uploadSource" value="demo_sales"></label><label>CSV файл<input id="csvFile" type="file" accept=".csv,text/csv"></label><button class="primary" id="upload" style="margin-top:11px">Проверить и загрузить</button><p class="small muted">До 100 000 строк, максимум 35 МиБ. Расхождения в ранее опубликованных чеках блокируют загрузку.</p>')+
+  '</div><div style="margin-top:16px">'+card('Исправление опубликованного диапазона · DAT-F-07',
+    '<p class="small muted">Загрузите полный, проверенный CSV для указанного магазина и диапазона. Все прежние строки этого источника и периода заменятся; другие магазины и источники не затрагиваются. Пустой CSV с одними заголовками означает подтверждённые нулевые продажи.</p>'+
+    '<div class="formgrid">'+
+    '<label>Источник продаж<select id="replaceSource">'+options(sources.filter(x=>x.entity==='sales').map(x=>({id:x.id,label:x.id})), 'demo_sales')+'</select></label>'+
+    '<label>Магазин<select id="replaceStore">'+options(catalogStores,'S001')+'</select></label>'+
+    '<label>Версия данных<input type="number" readonly id="replaceVersion" value="'+dataset.version+'"></label>'+
+    '<label>С<input type="date" id="replaceStart" value="'+esc(state.end)+'"></label>'+
+    '<label>По (макс. 31 день)<input type="date" id="replaceEnd" value="'+esc(state.end)+'"></label>'+
+    '<label>Проверенный CSV<input type="file" id="replaceFile" accept=".csv,text/csv"></label></div>'+
+    '<label>Причина и основание исправления<input id="replaceReason" style="display:block;width:100%;margin:6px 0 16px" maxlength="400" placeholder="Например: сверка кассового отчёта от 15.11"></label>'+
+    '<button class="danger" id="replaceSubmit">Подтвердить замену диапазона</button>'+
+    '<p id="replaceResult" aria-live="polite" class="small muted" style="margin-top:12px"></p>'
+   )+'</div>';
+ $('addSource').onclick=async()=>{try{const f=await api('/api/v1/sources','POST',{id:$('newSource').value,kind:'csv',entity:$('sourceEntity').value});toast('Создан источник '+f.id);sourcesPage()}catch(e){toast(e.message,true)}};
+ $('upload').onclick=async()=>{
+  try{
+   const file=$('csvFile').files[0];if(!file)throw Error('Выберите файл CSV');
+   const res=await api('/api/v1/pipelines/'+encodeURIComponent($('uploadSource').value)+'/runs','POST',{idempotencyKey:crypto.randomUUID(),csv:await file.text()});
+   toast('Импорт '+res.status+' · строк '+res.rowsReceived);
+   if(res.status==='rejected')toast('Витрина не изменена. Смотрите журнал качества.',true);
+  }catch(e){toast(e.message,true)}
+ };
+ $('replaceSubmit').onclick=async()=>{
+  try{
+   const file=$('replaceFile').files[0];
+   if(!file)throw Error('Укажите CSV со всеми подтверждёнными чеками для диапазона');
+   if(file.size>35*1024*1024)throw Error('CSV превышает 35 МиБ');
+   const rows=parseLocalCSV(await file.text());
+   const body={
+    idempotencyKey:crypto.randomUUID(), expectedDatasetVersion:Number($('replaceVersion').value),
+    start:$('replaceStart').value, end:$('replaceEnd').value,
+    storeId:$('replaceStore').value, reason:$('replaceReason').value,rows
+   };
+   if(!body.reason.trim()||body.reason.trim().length<12)throw Error('Укажите основание исправления (не менее 12 символов)');
+   if(!window.confirm('Подтвердить ПОЛНУЮ замену строк '+body.storeId+' за '+body.start+' — '+body.end+'? Удалённые или исправленные чеки не попадут в текущую витрину, но останутся в raw и журнале запусков.'))return;
+   const res=await api('/api/v1/pipelines/'+encodeURIComponent($('replaceSource').value)+'/reprocess','POST',body);
+   $('replaceResult').textContent='Запуск '+res.runId+' · '+res.status+' · версия '+res.datasetVersion;
+   if(res.status==='rejected')toast('Исправление отклонено из-за качества строк',true);
+   else {toast('Диапазон опубликован, версия '+res.datasetVersion);$('replaceVersion').value=res.datasetVersion}
+  }catch(e){toast(e.message,true)}
+ };
+}
+function parseLocalCSV(input){
+ const cells=[],lines=[];let value='',row=[],quoted=false;
+ for(let i=0;i<input.length;i++){
+  const c=input[i];
+  if(quoted){
+   if(c==='"'&&input[i+1]==='"'){value+='"';i++}
+   else if(c==='"')quoted=false;
+   else value+=c;
+  }else if(c==='"')quoted=true;
+  else if(c===','){row.push(value);value=''}
+  else if(c==='\n'){row.push(value.replace(/\r$/,''));lines.push(row);row=[];value=''}
+  else value+=c;
+ }
+ if(quoted)throw Error('Некорректная кавычка в CSV');
+ if(row.length||value){row.push(value.replace(/\r$/,''));lines.push(row)}
+ if(lines.length===0)throw Error('CSV пустой');
+ const headers=lines.shift().map((v,i)=>i===0?v.replace(/^\uFEFF/,''):v);
+ if(!headers.includes('transaction_id')||!headers.includes('sku')||!headers.includes('date'))throw Error('Нет обязательных колонок transaction_id, sku, date');
+ if(lines.length>100000)throw Error('CSV превышает 100 000 строк');
+ return lines.filter(x=>x.some(v=>v!=='')).map(x=>{
+  if(x.length!==headers.length)throw Error('Неверное число столбцов CSV');
+  return Object.fromEntries(headers.map((h,i)=>[h,x[i]]))
+ });
 }
 function sourcesPage(){sources().catch(error)}
 async function catalog(){
