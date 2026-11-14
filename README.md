@@ -113,7 +113,7 @@ GET /api/v1/datasets/current возвращает текущую версию. G
 
     docker compose exec api python -m backend.scripts.manage_access bootstrap --name operator
 
-Сохраните сгенерированный ключ: он показывается только один раз. Следующие пользователи создаются через вкладку «Управление доступом» или API. В браузере нет предзаполненного ключа: в локальном демо введите demo-analyst; для production введите выданный ключ.
+Сохраните сгенерированный ключ: он показывается только один раз. Если все административные ключи истекли или отозваны, восстановление для прежнего администратора доступно через docker compose exec api python -m backend.scripts.manage_access recover --name operator (только локальный оператор Docker/БД). Следующие пользователи создаются через вкладку «Управление доступом» или API. В браузере нет предзаполненного ключа: в локальном демо введите demo-analyst; для production введите выданный ключ.
 
 Для managed-only режима задайте APP_ENV=production, DEMO_MODE=0, удалите все TOKEN_* из .env и замените FORECAST_SERVICE_TOKEN; убедитесь, что пароль PostgreSQL в .env и compose.yml не является демо. Приложение отказоустойчиво запрещает запуск в production с демо-ключами; это не заменяет TLS и полноценный deployment hardening.
 
