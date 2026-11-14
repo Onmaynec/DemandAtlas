@@ -24,12 +24,19 @@ services:
         condition: service_healthy
       forecast:
         condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
   worker:
     build: .
-    command: ["sh", "-c", "alembic -c backend/alembic.ini upgrade head && python -m backend.app.worker"]
+    command: ["python", "-m", "backend.app.worker"]
     env_file: .env
     depends_on:
       postgres:
+        condition: service_healthy
+      api:
         condition: service_healthy
 volumes:
   demandatlas_pg:
