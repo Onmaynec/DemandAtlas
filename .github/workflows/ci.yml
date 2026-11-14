@@ -22,6 +22,15 @@ jobs:
           FORECAST_URL: ""
           PYTHONPATH: .
         run: python -m pytest -q tests
+      - name: SPA JavaScript syntax
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("web/index.html").read_text(encoding="utf-8")
+          js = html.split("<script>", 1)[1].split("</script>", 1)[0]
+          Path("/tmp/demandatlas-spa.js").write_text(js, encoding="utf-8")
+          PY
+          node --check /tmp/demandatlas-spa.js
   docker-build:
     runs-on: ubuntu-latest
     steps:

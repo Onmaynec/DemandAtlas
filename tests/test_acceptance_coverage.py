@@ -66,3 +66,26 @@ def test_at04_missing_store_three_days_must_show_incomplete_coverage():
     assert coverage["observedStoreDays"] == 5
     assert coverage["incomplete"] is True
     assert coverage["storeCoveragePct"] == 62.5
+
+
+
+def test_coverage_detail_reports_only_permitted_store_days():
+    setup_catalog()
+    start = date.today() - timedelta(days=3)
+    end = date.today()
+    ingest("source", "observed", [sale(start, 1, store="S001")])
+    details = client.get(
+        f"/api/v1/metrics/coverage?start={start}&end={end}&store=S001",
+        headers=ANALYST,
+    )
+    assert details.status_code == 200
+    result = details.json()
+    assert result["summary"]["expectedStoreDays"] == 4
+    assert result["summary"]["observedStoreDays"] == 1
+    assert len(result["missing"]) == 3
+    observer = {"Authorization": "Bearer demo-observer"}
+    forbidden = client.get(
+        f"/api/v1/metrics/coverage?start={start}&end={end}&store=S999",
+        headers=observer,
+    )
+    assert forbidden.status_code == 403
