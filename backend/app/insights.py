@@ -185,7 +185,7 @@ def contributions(
     limit: int = Query(default=30, ge=1, le=200),
     user: Principal = Depends(current_user), db: Session = Depends(get_db),
 ):
-    if user.role == "data_engineer":
+    if user.role in ("data_engineer", "access_admin"):
         raise HTTPException(403, "Business insights not permitted")
     return contribution_report(db, user, start, end, group_by, metric,
                                store, region, category, sku, limit)

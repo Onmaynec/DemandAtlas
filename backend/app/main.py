@@ -2,8 +2,8 @@ import csv
 import io
 from decimal import Decimal
 import os
-import time
-from collections import defaultdict
+import logging
+import re
 from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -19,7 +19,8 @@ from fastapi.responses import FileResponse
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
-from .auth import Principal, can_access, current_user, require_scope, roles
+from .auth import (Principal, business_user, current_user, require_scope, roles,
+                   validate_runtime)
 from .db import get_db
 from .domain import METRICS
 from .models import (
@@ -30,33 +31,70 @@ from .pipeline import fetch_sql, ingest, parse_csv
 from .decisions import router as decisions_router
 from .reprocessing import router as reprocessing_router
 from .insights import router as insights_router
+from .admin import router as admin_router
+from .security import audit_mutation, limit_request
+from starlette.concurrency import run_in_threadpool
 
-app = FastAPI(title="DemandAtlas API", version="0.3.0", openapi_url="/openapi.json")
-requests = defaultdict(list)
+validate_runtime()
+app = FastAPI(title="DemandAtlas API", version="0.4.0", openapi_url="/openapi.json")
 
 
 @app.middleware("http")
 async def middleware(request: Request, call_next):
-    request_id = request.headers.get("X-Request-ID", "")[:80] or str(uuid4())
+    supplied = request.headers.get("X-Request-ID", "")
+    request_id = re.sub(r"[^a-zA-Z0-9._:-]", "", supplied)[:80] or str(uuid4())
     request.state.request_id = request_id
-    # Bearer-only API: no cookie authentication / CSRF state.
-    if request.url.path.startswith("/api/"):
-        identity = request.headers.get("Authorization", "anonymous")
-        now = time.monotonic()
-        bucket = requests[identity]
-        requests[identity] = [point for point in bucket if now - point < 60]
-        if len(requests[identity]) >= int(os.getenv("RATE_LIMIT_PER_MINUTE", "240")):
-            return JSONResponse({"code": "rate_limited", "message": "Too many requests",
-                                 "requestId": request_id, "details": {}},
-                                status_code=429, headers={"X-Request-ID": request_id})
-        requests[identity].append(now)
-    try:
-        response = await call_next(request)
-    except Exception:
-        raise
+    is_api = request.url.path.startswith("/api/")
+    if is_api:
+        max_bytes = int(os.getenv("MAX_REQUEST_BYTES", str(40 * 1024 * 1024)))
+        if request.method in ("POST", "PUT", "PATCH"):
+            length = request.headers.get("content-length")
+            if length is not None:
+                try:
+                    if int(length) > max_bytes:
+                        return JSONResponse({
+                            "code": "payload_too_large", "message": "Request body exceeds limit",
+                            "requestId": request_id, "details": {"maxBytes": max_bytes},
+                        }, status_code=413, headers={"X-Request-ID": request_id})
+                except ValueError:
+                    return JSONResponse({
+                        "code": "invalid_content_length", "message": "Invalid Content-Length",
+                        "requestId": request_id, "details": {},
+                    }, status_code=400, headers={"X-Request-ID": request_id})
+            # Do not trust Content-Length: enforce limits for chunked uploads.
+            pieces = []
+            size = 0
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > max_bytes:
+                    return JSONResponse({
+                        "code": "payload_too_large", "message": "Request body exceeds limit",
+                        "requestId": request_id, "details": {"maxBytes": max_bytes},
+                    }, status_code=413, headers={"X-Request-ID": request_id})
+                pieces.append(chunk)
+            request._body = b"".join(pieces)
+        limit = max(1, int(os.getenv("RATE_LIMIT_PER_MINUTE", "240")))
+        if await run_in_threadpool(limit_request, request, limit):
+            return JSONResponse({
+                "code": "rate_limited", "message": "Too many requests",
+                "requestId": request_id, "details": {},
+            }, status_code=429, headers={"X-Request-ID": request_id,
+                                         "Retry-After": "60"})
+    response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Cache-Control"] = "no-store"
+    if is_api and request.method in ("POST", "PATCH", "PUT", "DELETE"):
+        # Administrative mutations audit in their own transaction. Failed
+        # attempts and all other mutations are recorded after the response.
+        if not (request.url.path.startswith("/api/v1/admin/") and
+                response.status_code < 400):
+            try:
+                await run_in_threadpool(audit_mutation, request,
+                                        response.status_code)
+            except Exception:
+                logging.exception("Audit persistence failed requestId=%s", request_id)
     return response
 
 
@@ -110,6 +148,8 @@ def me(user: Principal = Depends(current_user)):
 
 @app.get("/api/v1/catalog")
 def catalog(user: Principal = Depends(current_user), db: Session = Depends(get_db)):
+    if user.role == "access_admin":
+        raise HTTPException(403, "Business catalog not permitted")
     stores = db.scalars(select(Store)).all()
     products = db.scalars(select(Product)).all()
     return {
@@ -293,7 +333,7 @@ def coverage_detail(
     region: str | None = None,
     user: Principal = Depends(current_user), db: Session = Depends(get_db)
 ):
-    if user.role == "data_engineer":
+    if user.role in ("data_engineer", "access_admin"):
         raise HTTPException(403, "Business coverage not permitted")
     if end < start or (end - start).days > 92:
         raise HTTPException(400, "Coverage range must be between 1 and 93 days")
@@ -333,8 +373,8 @@ def metrics_sales(
 ):
     if end < start or (end - start).days > 730:
         raise HTTPException(400, "Date range must be 0–730 days")
-    if user.role == "data_engineer":
-        raise HTTPException(403, "Data engineers cannot view business reporting")
+    if user.role in ("data_engineer", "access_admin"):
+        raise HTTPException(403, "Business reporting not permitted")
     values = sales_query(db, user, start, end, store, region, category, sku, group_by)
     rows = []
     for v in values:
@@ -351,7 +391,7 @@ def metrics_compare(
     store: str | None = None, category: str | None = None,
     user: Principal = Depends(current_user), db: Session = Depends(get_db)
 ):
-    if user.role == "data_engineer":
+    if user.role in ("data_engineer", "access_admin"):
         raise HTTPException(403, "Not permitted")
     if end < start or (end - start).days > 365:
         raise HTTPException(400, "Invalid comparison window")
@@ -538,6 +578,7 @@ def export_sales_xlsx(
 app.include_router(decisions_router)
 app.include_router(reprocessing_router)
 app.include_router(insights_router)
+app.include_router(admin_router)
 
 @app.get("/")
 def index():

@@ -15,6 +15,7 @@ aside{border-right:1px solid var(--line);padding:27px 17px;background:#0f1118;po
 .mark{width:28px;height:28px;border:2px solid var(--accent);border-radius:9px;display:grid;place-items:center;color:var(--accent);font-weight:800}
 .nav-title{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);margin:11px 12px}
 nav button{width:100%;display:flex;align-items:center;gap:11px;border:0;background:transparent;color:#b5bdc8;text-align:left;padding:12px 13px;border-radius:10px;margin:3px 0}
+nav button[hidden]{display:none!important}
 nav button:hover,nav button.active{background:#232b31;color:var(--text)}
 nav button.active{box-shadow:inset 3px 0 var(--accent)}
 .side-bottom{position:absolute;bottom:22px;left:24px;right:24px;border-top:1px solid var(--line);padding-top:17px;color:var(--muted);font-size:12px}
@@ -84,14 +85,15 @@ summary{cursor:pointer;color:#d7dce2}
       <button data-view="forecast">⌁ &nbsp; Прогнозирование</button>
       <button data-view="plans">▣ &nbsp; Закупки и согласование</button>
       <button data-view="sources">⊞ &nbsp; Источники данных</button>
+      <button data-view="access" hidden>⚿ &nbsp; Управление доступом</button>
       <button data-view="catalog">≡ &nbsp; Каталог метрик</button>
     </nav>
-    <div class="side-bottom">DEMAND INTELLIGENCE<br>Версия 0.3.0 • Локальная система</div>
+    <div class="side-bottom">DEMAND INTELLIGENCE<br>Версия 0.4.0 • Локальная система</div>
   </aside>
   <main>
     <div class="topbar"><div class="breadcrumb">Аналитика / <span id="crumb">Обзор</span></div>
       <div class="userbar"><span class="small muted">Ключ доступа</span>
-        <input id="token" aria-label="Bearer-токен" type="password" value="demo-analyst" style="width:150px" autocomplete="off">
+        <input id="token" aria-label="Bearer-токен" type="password" value="" placeholder="Bearer-ключ" style="width:150px" autocomplete="off">
         <button id="connect" class="secondary">Подключить</button>
         <span class="pill" id="user">—</span>
       </div>
@@ -102,7 +104,7 @@ summary{cursor:pointer;color:#d7dce2}
 <div id="toast" role="status"></div>
 <script>
 'use strict';
-const state={view:'overview',token:'demo-analyst',start:'',end:'',store:'',sku:'',catalog:null,forecastId:null,qualityRun:null,role:null,insight:{metric:'revenue',group:'store',region:'',category:'',sku:''},risk:{status:'all',lookback:28,review:7,max:60,offset:0}};
+const state={view:'overview',token:'',start:'',end:'',store:'',sku:'',catalog:null,forecastId:null,qualityRun:null,role:null,insight:{metric:'revenue',group:'store',region:'',category:'',sku:''},risk:{status:'all',lookback:28,review:7,max:60,offset:0}};
 const $=id=>document.getElementById(id);
 const esc=v=>String(v===null||v===undefined?'—':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=v=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2}).format(Number(v||0));
@@ -117,7 +119,8 @@ const headings={
  forecast:['Прогноз спроса','Сравнение baseline-моделей на исторических окнах'],
  plans:['Планирование закупок','Расчёт заказа, сценарии и утверждение решений'],
  sources:['Источники данных','Регистрация CSV и безопасных SQL-коннекторов'],
- catalog:['Каталог метрик','Определения, формулы и происхождение KPI']
+ catalog:['Каталог метрик','Определения, формулы и происхождение KPI'],
+ access:['Управление доступом','Пользователи, роли, ограничение данных, ключи и аудит']
 };
 async function api(path,method='GET',body){
  const headers={Authorization:'Bearer '+state.token};
@@ -472,16 +475,143 @@ async function catalog(){
  const data=await api('/api/v1/metrics/catalog');
  $('body').innerHTML='<div class="grid-even">'+Object.entries(data).map(([name,v])=>card(name,'<p>'+esc(v.formula)+'</p><p class="small muted">Единицы: '+esc(v.unit)+'<br>Источник: '+esc(v.source)+'</p>')).join('')+'</div><p class="small muted">Происхождение конкретного KPI доступно через GET /api/v1/lineage.</p>';
 }
+function showOnceToken(token,target='onceToken'){
+ const box=$(target);
+ if(!box)return;
+ box.innerHTML='';
+ const title=document.createElement('div');
+ title.className='notice';
+ title.textContent='Новый ключ показан один раз. Скопируйте и сохраните его в менеджере секретов. После смены экрана получить его повторно нельзя.';
+ const area=document.createElement('textarea');
+ area.readOnly=true;area.rows=2;area.style.width='100%';
+ area.value=token;
+ const copy=document.createElement('button');
+ copy.className='secondary';copy.textContent='Скопировать ключ';
+ copy.onclick=async()=>{try{await navigator.clipboard.writeText(area.value);toast('Ключ скопирован')}catch{area.select();toast('Выделите и скопируйте ключ')}};
+ box.append(title,area,copy);
+}
+async function access(){
+ const [users,audit]=await Promise.all([
+  api('/api/v1/admin/users'),api('/api/v1/admin/audit?limit=30')
+ ]);
+ const roles=[{id:'analyst',label:'Аналитик'}, {id:'data_engineer',label:'Инженер данных'},
+ {id:'category_manager',label:'Категорийный менеджер'}, {id:'director',label:'Руководитель'},
+ {id:'observer',label:'Наблюдатель'}, {id:'access_admin',label:'Администратор доступа'}];
+ const userRows=users.map(u=>'<tr><td>'+esc(u.name)+'</td><td>'+esc(u.role)+'</td>'+
+  '<td>'+esc(u.stores?.join(',')||'Все')+'</td><td>'+esc(u.categories?.join(',')||'Все')+'</td>'+
+  '<td>'+ (u.enabled?'<span class="pill">Активен</span>':'<span class="pill warn">Отключён</span>')+'</td>'+
+  '<td><button class="secondary" data-keys="'+esc(u.id)+'">Ключи</button> '+
+  '<button class="secondary" data-scope="'+esc(u.id)+'">Доступ</button> '+
+  '<button class="danger" data-user-enabled="'+esc(u.id)+'" data-enabled="'+u.enabled+'">'+(u.enabled?'Отключить':'Включить')+'</button></td></tr>');
+ const auditRows=audit.map(v=>'<tr><td>'+esc(v.actor)+'</td><td>'+esc(v.method)+'</td><td>'+esc(v.path)+'</td>'+
+  '<td>'+v.status+'</td><td>'+esc(v.recordedAt)+'</td></tr>');
+ const create=card('Создать учётную запись',
+  '<div class="formgrid"><label>Логин<input id="aName" placeholder="operator01" maxlength="70"></label>'+
+  '<label>Роль<select id="aRole">'+options(roles,'analyst')+'</select></label>'+
+  '<label>Магазины через запятую<input id="aStores" placeholder="S001,S002"></label>'+
+  '<label>Категории через запятую<input id="aCategories" placeholder="Food"></label>'+
+  '<label>Срок ключа, дней<input id="aDays" type="number" min="1" max="365" value="90"></label></div>'+
+  '<p class="small muted">Пустые ограничения означают доступ ко всем магазинам или категориям. Для наблюдателя магазины обязательны; для менеджера — категории.</p>'+
+  '<button class="primary" id="aCreate">Создать и выпустить ключ</button><div id="onceToken" style="margin-top:15px"></div>');
+ const actions=card('Учётные записи',table(['Логин','Роль','Магазины','Категории','Состояние','Действия'],userRows));
+ const logs=card('Последние изменения доступа и данных',table(['Актор','Метод','Маршрут','HTTP','Дата'],auditRows));
+ $('body').innerHTML=create+'<div style="margin-top:17px">'+actions+'</div>'+
+  '<div id="adminKeyDetails" style="margin-top:17px"></div>'+
+  '<div style="margin-top:17px">'+logs+'</div>';
+ const split=x=>x.split(',').map(v=>v.trim()).filter(Boolean);
+ $('aCreate').onclick=async()=>{
+  try{
+   const payload={name:$('aName').value.trim(),role:$('aRole').value,
+    stores:split($('aStores').value),categories:split($('aCategories').value),
+    expiresInDays:Number($('aDays').value)};
+   const created=await api('/api/v1/admin/users','POST',payload);
+   await access();showOnceToken(created.tokenOnce);
+   toast('Учётная запись '+created.name+' создана');
+  }catch(e){toast(e.message,true)}
+ };
+ document.querySelectorAll('[data-user-enabled]').forEach(button=>button.onclick=async()=>{
+  try{
+   const enabled=button.dataset.enabled==='true';
+   if(!confirm((enabled?'Отключить':'Включить')+' учётную запись?'))return;
+   await api('/api/v1/admin/users/'+encodeURIComponent(button.dataset.userEnabled),'PATCH',{enabled:!enabled});
+   toast('Состояние изменено');await access();
+  }catch(e){toast(e.message,true)}
+ });
+ document.querySelectorAll('[data-scope]').forEach(button=>button.onclick=async()=>{
+  const user=users.find(x=>x.id===button.dataset.scope);
+  if(!user)return;
+  const role=prompt('Роль: analyst, data_engineer, category_manager, director, observer, access_admin',user.role);
+  if(role===null)return;
+  const stores=prompt('Магазины через запятую (пусто = все)',user.stores.join(','));
+  if(stores===null)return;
+  const categories=prompt('Категории через запятую (пусто = все)',user.categories.join(','));
+  if(categories===null)return;
+  try{
+   await api('/api/v1/admin/users/'+encodeURIComponent(user.id),'PATCH',
+             {role:role.trim(),stores:split(stores),categories:split(categories)});
+   toast('Область доступа изменена');await access();
+  }catch(e){toast(e.message,true)}
+ });
+ document.querySelectorAll('[data-keys]').forEach(button=>button.onclick=async()=>{
+  try{
+   const id=button.dataset.keys;
+   const user=users.find(x=>x.id===id);
+   const keys=await api('/api/v1/admin/users/'+encodeURIComponent(id)+'/keys');
+   const rows=keys.map(k=>'<tr><td>'+esc(k.prefix)+'…</td><td>'+esc(k.label)+'</td>'+
+    '<td>'+esc(k.expiresAt)+'</td><td>'+(k.revokedAt?'Отозван':'Действует')+'</td>'+
+    '<td>'+(k.revokedAt?'—':'<button class="danger" data-revoke="'+esc(k.id)+'">Отозвать</button> '+
+    '<button class="secondary" data-rotate="'+esc(k.id)+'">Ротировать</button>')+'</td></tr>');
+   $('adminKeyDetails').innerHTML=card('Ключи · '+user.name,
+    '<div class="inline-actions"><label>Метка<input id="keyLabel" value="renewed"></label>'+
+    '<label>Дней<input id="keyDays" type="number" min="1" max="365" value="90" style="width:75px"></label>'+
+    '<button id="keyCreate" class="primary">Выдать новый ключ</button></div>'+
+    table(['Начало','Метка','Действует до','Статус','Действия'],rows)+
+    '<div id="onceTokenKey" style="margin-top:15px"></div>');
+   $('keyCreate').onclick=async()=>{
+    try{
+     const result=await api('/api/v1/admin/users/'+encodeURIComponent(id)+'/keys','POST',
+      {label:$('keyLabel').value,expiresInDays:Number($('keyDays').value)});
+     showOnceToken(result.tokenOnce,'onceTokenKey');toast('Ключ выдан — сохраните его сейчас');
+    }catch(e){toast(e.message,true)}
+   };
+   document.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{
+    try{
+     if(!confirm('Отозвать ключ? Все запросы с ним немедленно перестанут работать.'))return;
+     await api('/api/v1/admin/keys/'+encodeURIComponent(b.dataset.revoke)+'/revoke','POST',{});
+     toast('Ключ отозван');await access();
+    }catch(e){toast(e.message,true)}
+   });
+   document.querySelectorAll('[data-rotate]').forEach(b=>b.onclick=async()=>{
+    try{
+     if(!confirm('Отозвать существующий ключ и выдать новый?'))return;
+     const result=await api('/api/v1/admin/keys/'+encodeURIComponent(b.dataset.rotate)+'/rotate',
+      'POST',{label:'rotated',expiresInDays:90});
+     await access();showOnceToken(result.tokenOnce);
+     toast('Ключ обновлён, старый отозван');
+    }catch(e){toast(e.message,true)}
+   });
+  }catch(e){toast(e.message,true)}
+ });
+}
 async function load(){
  try{
   const u=await api('/api/v1/auth/me');$('user').textContent=u.role;state.role=u.role;
+  const admin=u.role==='access_admin';
+  document.querySelectorAll('#nav button').forEach(b=>{
+   b.hidden=admin?b.dataset.view!=='access':b.dataset.view==='access';
+  });
+  if(admin){
+   if(state.view!=='access')shell('access');
+   access().catch(error);return;
+  }
+  if(state.view==='access')shell('overview');
   state.catalog=await api('/api/v1/catalog');
   ({overview,insights,risks,quality,forecast,plans,sources,catalog}[state.view])().catch(error);
  }catch(e){error(e);$('user').textContent='Нет доступа'}
 }
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{shell(b.dataset.view);load()});
 $('connect').onclick=()=>{state.token=$('token').value.trim();load()};
-shell('overview');load();
+shell('overview');$('body').innerHTML='<div class="notice">Введите Bearer-ключ доступа для подключения. Для локального демо: demo-analyst (только при DEMO_MODE=1).</div>';
 </script>
 </body>
 </html>

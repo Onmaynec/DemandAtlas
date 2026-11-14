@@ -6,11 +6,13 @@ from sqlalchemy import select
 from .db import SessionLocal
 from .models import Source
 from .pipeline import fetch_sql, ingest
+from .security import clean_rate_limits
 
 logging.basicConfig(level="INFO")
 
 
 def run_due():
+    clean_rate_limits()
     with SessionLocal.begin() as session:
         due = session.scalars(select(Source).where(
             Source.enabled.is_(True), Source.schedule_minutes.is_not(None),

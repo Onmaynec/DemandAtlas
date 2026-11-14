@@ -167,7 +167,7 @@ def forecast_publish(
 
 @router.get("/forecasts")
 def list_forecasts(user: Principal = Depends(current_user), db: Session = Depends(get_db)):
-    if user.role == "data_engineer":
+    if user.role in ("data_engineer", "access_admin"):
         raise HTTPException(403, "Not permitted")
     stmt = select(Forecast).order_by(Forecast.created_at.desc()).limit(100)
     if user.stores:
