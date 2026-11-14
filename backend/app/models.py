@@ -195,3 +195,51 @@ class PlanRevision(Base):
     payload: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     __table_args__ = (UniqueConstraint("plan_id", "version"),)
+
+
+# v0.4.0: local identity and access management. Secrets are NEVER stored raw.
+class AccessUser(Base):
+    __tablename__ = "access_users"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(70), unique=True, nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    stores: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    categories: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class AccessKey(Base):
+    __tablename__ = "access_keys"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("access_users.id"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    prefix: Mapped[str] = mapped_column(String(18), nullable=False)
+    label: Mapped[str] = mapped_column(String(70), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(70), nullable=False)
+    __table_args__ = (Index("ix_access_keys_user", "user_id"),)
+
+
+class AccessAudit(Base):
+    __tablename__ = "access_audit"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    request_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    actor_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    actor_name: Mapped[str] = mapped_column(String(70), nullable=False)
+    actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    method: Mapped[str] = mapped_column(String(8), nullable=False)
+    path: Mapped[str] = mapped_column(String(250), nullable=False)
+    status_code: Mapped[int] = mapped_column(Integer, nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    __table_args__ = (Index("ix_access_audit_time", "recorded_at"),)
+
+
+class RateLimitWindow(Base):
+    __tablename__ = "rate_limit_windows"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    hits: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

@@ -51,6 +51,7 @@ jobs:
           docker compose -f compose.yml exec -T api python -m backend.scripts.seed_demo --rows 300 --seed 42
           docker compose -f compose.yml exec -T api python -m backend.scripts.smoke_postgres
           docker compose -f compose.yml exec -T api python -m backend.scripts.smoke_insights
+          docker compose -f compose.yml exec -T api python -m backend.scripts.smoke_auth
           curl --fail --silent http://127.0.0.1:8000/health
           curl --fail --silent -H "Authorization: Bearer demo-analyst" \
             http://127.0.0.1:8000/api/v1/metrics/catalog | python -c "import sys,json; assert 'margin' in json.load(sys.stdin)"
