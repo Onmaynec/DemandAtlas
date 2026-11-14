@@ -199,3 +199,21 @@ def test_offline_first_admin_bootstrap_only_once(monkeypatch):
     }).json()["role"] == "access_admin"
     with pytest.raises(RuntimeError, match="already exists"):
         bootstrap("second")
+    # An administrative recovery is possible only after ALL admin keys expire.
+    from backend.scripts.manage_access import recover
+    with pytest.raises(RuntimeError, match="active administrator key"):
+        recover("first")
+    with SessionLocal.begin() as db:
+        db.get(AccessKey, key_id).expires_at = utc_now() - timedelta(days=1)
+    new_secret, _ = recover("first")
+    assert client.get("/api/v1/auth/me", headers={
+        "Authorization": "Bearer " + secret
+    }).status_code == 401
+    assert client.get("/api/v1/auth/me", headers={
+        "Authorization": "Bearer " + new_secret
+    }).status_code == 200
+    with SessionLocal() as db:
+        assert db.scalar(select(AccessAudit).where(
+            AccessAudit.path == "/admin/recover"
+        )) is not None
+
