@@ -6,7 +6,7 @@ from uuid import uuid4
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import Integer, func, select
 from sqlalchemy.orm import Session
 
 from .auth import Principal, current_user, require_scope, roles
@@ -70,7 +70,7 @@ def get_history(db: Session, user: Principal, store_id: str | None, sku: str | N
     check_dimensions(db, user, store_id, sku)
     stmt = select(
         DailySalesMart.date, func.sum(DailySalesMart.units),
-        func.max(DailySalesMart.promo), func.max(DailySalesMart.stockout)
+        func.max(DailySalesMart.promo.cast(Integer)), func.max(DailySalesMart.stockout.cast(Integer))
     ).where(DailySalesMart.units >= 0)
     if store_id:
         stmt = stmt.where(DailySalesMart.store_id == store_id)
